@@ -162,7 +162,7 @@ object NotificationHelper {
             val tick = priceState[sym]
             val priceStr = if (tick != null) dfLocal.format(tick.price) else "..."
             val dir = if (tick != null && tick.change >= 0) "▲" else "▼"
-            val pct = if (tick != null) String.format("%.2f%%", tick.changePercent) else "0.0%"
+            val pct = if (tick != null) String.format("%.2f%%", kotlin.math.abs(tick.changePercent)) else "0.0%"
             "$sym ($dir $priceStr · $pct)"
         }
 

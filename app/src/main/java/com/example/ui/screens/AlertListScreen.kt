@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.Alert
 import com.example.data.model.SymbolInfo
+import com.example.data.model.formatPriceDynamic
 import com.example.ui.theme.*
 import com.example.viewmodel.MainViewModel
 
@@ -38,12 +40,71 @@ fun AlertListScreen(
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Create Alert")
+            if (alerts.isEmpty()) {
+                FloatingActionButton(
+                    onClick = { showCreateDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Create Alert")
+                }
+            }
+        },
+        bottomBar = {
+            // Bulk actions footer if alerts exist
+            if (alerts.isNotEmpty()) {
+                BottomAppBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    actions = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.activateAllAlerts() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Activate All",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.deactivateAllAlerts() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Pause,
+                                    contentDescription = "Deactivate All",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.deleteAllAlerts() },
+                                colors = IconButtonDefaults.iconButtonColors(contentColor = AlertCritical)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteForever,
+                                    contentDescription = "Delete All Alerts",
+                                    tint = AlertCritical,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    },
+                    floatingActionButton = {
+                        FloatingActionButton(
+                            onClick = { showCreateDialog = true },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Create Alert")
+                        }
+                    }
+                )
             }
         }
     ) { paddingValues ->
@@ -59,6 +120,13 @@ fun AlertListScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = { Text("Search Alerts...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
@@ -150,41 +218,6 @@ fun AlertListScreen(
                     }
                 }
             }
-
-            // Bulk actions footer if alerts exist
-            if (alerts.isNotEmpty()) {
-                Surface(
-                    tonalElevation = 4.dp,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        TextButton(onClick = { viewModel.activateAllAlerts() }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Activate All", fontSize = 12.sp)
-                        }
-                        TextButton(onClick = { viewModel.deactivateAllAlerts() }) {
-                            Icon(Icons.Default.Pause, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Mute All", fontSize = 12.sp)
-                        }
-                        TextButton(
-                            onClick = { viewModel.deleteAllAlerts() },
-                            colors = ButtonDefaults.textButtonColors(contentColor = AlertCritical)
-                        ) {
-                            Icon(Icons.Default.DeleteForever, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -215,10 +248,13 @@ fun AlertRuleItem(
     onToggleActive: (Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
+    val info = SymbolInfo.find(alert.symbol)
+    val formattedPrice = alert.targetPrice.formatPriceDynamic(info.decimals)
+
     val condLabel = when (alert.condition) {
-        "CROSSING_UP" -> "Target crossing UP"
-        "CROSSING_DOWN" -> "Target crossing DOWN"
-        else -> "Target crossing"
+        "CROSSING_UP" -> "Crossing UP"
+        "CROSSING_DOWN" -> "Crossing DOWN"
+        else -> "Crossing"
     }
 
     val themeColor = when (alert.priority) {
@@ -232,61 +268,91 @@ fun AlertRuleItem(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (alert.isActive) MaterialTheme.colorScheme.surfaceVariant
-            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = if (alert.isActive) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .height(IntrinsicSize.Min)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(themeColor)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+            // Left priority vertical bar tag
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(6.dp)
+                    .background(if (alert.isActive) themeColor else themeColor.copy(alpha = 0.4f))
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = alert.symbol,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (alert.isActive) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(themeColor.copy(alpha = 0.12f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = alert.priority,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = themeColor,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = alert.symbol,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (alert.isActive) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        text = "$condLabel at $$formattedPrice",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = PriceTextFontFamily,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = if (alert.isActive) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = if (alert.isOneTime) "One-time target" else "Repeating target",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "$condLabel at $${alert.targetPrice}",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = PriceTextFontFamily),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "Priority: ${alert.priority}  ·  " + if (alert.isOneTime) "One-time" else "Repeating",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Active status toggle switch
-                Switch(
-                    checked = alert.isActive,
-                    onCheckedChange = { onToggleActive(it) }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Alert",
-                        tint = AlertCritical.copy(alpha = 0.85f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Active status toggle switch
+                    Switch(
+                        checked = alert.isActive,
+                        onCheckedChange = { onToggleActive(it) },
+                        modifier = Modifier.scale(0.85f)
                     )
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Alert",
+                            tint = AlertCritical.copy(alpha = 0.85f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }

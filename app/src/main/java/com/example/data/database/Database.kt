@@ -101,9 +101,24 @@ interface AppSettingDao {
     suspend fun clearSettings()
 }
 
+@Dao
+interface AppLogDao {
+    @Query("SELECT * FROM app_logs ORDER BY timestamp DESC")
+    fun getAllLogsFlow(): Flow<List<com.example.data.model.AppLog>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLog(log: com.example.data.model.AppLog): Long
+
+    @Query("DELETE FROM app_logs WHERE id NOT IN (SELECT id FROM app_logs ORDER BY timestamp DESC LIMIT 100)")
+    suspend fun pruneOldLogs()
+
+    @Query("DELETE FROM app_logs")
+    suspend fun clearAllLogs()
+}
+
 @Database(
-    entities = [Alert::class, TriggerHistory::class, SymbolState::class, AppSetting::class],
-    version = 1,
+    entities = [Alert::class, TriggerHistory::class, SymbolState::class, AppSetting::class, com.example.data.model.AppLog::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -111,4 +126,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun triggerHistoryDao(): TriggerHistoryDao
     abstract fun symbolStateDao(): SymbolStateDao
     abstract fun appSettingDao(): AppSettingDao
+    abstract fun appLogDao(): AppLogDao
 }

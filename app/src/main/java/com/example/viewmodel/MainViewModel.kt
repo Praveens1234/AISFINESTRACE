@@ -49,6 +49,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val symbolStates: StateFlow<List<SymbolState>> = symbolDao.getAllSymbolStatesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Real-time app logs flow
+    val allLogs: StateFlow<List<com.example.data.model.AppLog>> = monitor.db.appLogDao().getAllLogsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // State of key settings
     private val _apiKey = MutableStateFlow("")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
@@ -423,6 +427,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun testDemoAlert(method: String) {
         viewModelScope.launch {
             NotificationHelper.fireDemoAlertNotification(getApplication(), method)
+        }
+    }
+
+    fun logEvent(type: String, message: String) {
+        monitor.logEvent(type, null, message)
+    }
+
+    fun clearAllLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            monitor.db.appLogDao().clearAllLogs()
+            monitor.logEvent("SYSTEM", null, "Logs cleared by user")
         }
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PriceTick
 import com.example.data.model.SymbolInfo
+import com.example.data.model.formatPriceDynamic
 import com.example.ui.theme.*
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
@@ -163,7 +164,7 @@ fun PriceMetricCard(
     onLongPress: () -> Unit
 ) {
     val info = SymbolInfo.find(tick.symbol)
-    val df = if (info.decimals == 2) DecimalFormat("#,##0.00") else DecimalFormat("#,##0.00000")
+
 
     // Flashing animations on price updates
     var prevPrice by remember { mutableStateOf(tick.price) }
@@ -224,7 +225,7 @@ fun PriceMetricCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "$arrow ${String.format("%.2f%%", tick.changePercent)}",
+                        text = "$arrow ${String.format("%.2f%%", kotlin.math.abs(tick.changePercent))}",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = changeColor
@@ -236,7 +237,7 @@ fun PriceMetricCard(
 
             // Main Price Display
             Text(
-                text = df.format(tick.price),
+                text = tick.price.formatPriceDynamic(info.decimals),
                 style = MaterialTheme.typography.displayMedium.copy(
                     fontFamily = PriceTextFontFamily,
                     fontSize = if (cardStyle == "Compact") 26.sp else 34.sp
@@ -255,7 +256,7 @@ fun PriceMetricCard(
                 ) {
                     // Bid / Ask summary
                     Text(
-                        text = "B: ${df.format(tick.bid)}  |  A: ${df.format(tick.ask)}",
+                        text = "B: ${tick.bid.formatPriceDynamic(info.decimals)}  |  A: ${tick.ask.formatPriceDynamic(info.decimals)}",
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = PriceTextFontFamily),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

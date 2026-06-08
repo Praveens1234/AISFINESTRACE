@@ -25,9 +25,13 @@ class PriceTrackerService : Service() {
         monitorManager = PriceMonitorManager.getInstance(this)
 
         // Request a partial wake lock to keep cpu active when screen goes off
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fintrace:CpuWakeLock").apply {
-            acquire(3600*1000L) // limit to 1 hr safe duration, re-acquired on ticks
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fintrace:CpuWakeLock").apply {
+                acquire(3600*1000L) // limit to 1 hr safe duration, re-acquired on ticks
+            }
+        } catch (e: Exception) {
+            Log.e("PriceTrackerService", "Failed to acquire wake lock: ${e.message}")
         }
 
         Log.d("PriceTrackerService", "Foreground service created successfully")
@@ -37,7 +41,15 @@ class PriceTrackerService : Service() {
         // Start foreground with FGS Notification (ID 1001)
         val activeSymbols = monitorManager.activeSymbols.value
         val notification = NotificationHelper.buildFgsNotification(this, activeSymbols)
-        startForeground(NotificationHelper.FGS_NOTIFICATION_ID, notification)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(
+                NotificationHelper.FGS_NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NotificationHelper.FGS_NOTIFICATION_ID, notification)
+        }
 
         scope.launch {
             monitorManager.activeSymbols.collect { active ->
@@ -58,8 +70,12 @@ class PriceTrackerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: Exception) {
+            Log.e("PriceTrackerService", "Failed to release wakeLock: ${e.message}")
         }
         monitorManager.stopMonitoring()
         scope.cancel()

@@ -93,6 +93,42 @@ fun SettingsScreen(
         }
     )
 
+    val customFilePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                val uriStr = uri.toString()
+                var title = "Custom File"
+                try {
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1 && cursor.moveToFirst()) {
+                            title = cursor.getString(nameIndex)
+                        }
+                    }
+                } catch (e: Exception) {
+                    title = "Selected Custom Audio File"
+                }
+
+                // Persist permission for custom files so we don't block service replay restarts
+                try {
+                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (e: Exception) {}
+
+                if (editingScopeForRingtone == "Global") {
+                    viewModel.saveAlertSoundUri(uriStr)
+                    viewModel.saveAlertSoundTitle(title)
+                } else {
+                    viewModel.savePrioritySoundUri(editingScopeForRingtone, uriStr)
+                    viewModel.savePrioritySoundTitle(editingScopeForRingtone, title)
+                }
+            }
+        }
+    )
+
+    var showSoundSourceDialog by remember { mutableStateOf(false) }
+
     var billingExpanded by remember { mutableStateOf(false) }
     var notificationExpanded by remember { mutableStateOf(false) }
     var defaultsExpanded by remember { mutableStateOf(false) }
@@ -372,19 +408,8 @@ fun SettingsScreen(
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable {
-                                    val intent = android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALL)
-                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alert Sound ($selectedScope)")
-                                        try {
-                                            if (activeSoundUri.isNotEmpty()) {
-                                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, android.net.Uri.parse(activeSoundUri))
-                                            }
-                                        } catch (e: Exception) {}
-                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
-                                    }
                                     editingScopeForRingtone = selectedScope
-                                    ringtonePickerLauncher.launch(intent)
+                                    showSoundSourceDialog = true
                                 }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -802,6 +827,89 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (showSoundSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showSoundSourceDialog = false },
+            title = { Text("Select Audio Source") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "How would you like to select your alert alarm tone for $editingScopeForRingtone triggers?",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Option 1: System ringtones
+                    Surface(
+                        onClick = {
+                            showSoundSourceDialog = false
+                            val suffix = editingScopeForRingtone.lowercase(java.util.Locale.US)
+                            val currentSoundUri = if (editingScopeForRingtone == "Global") {
+                                alertSoundUri
+                            } else {
+                                prioritySoundUris[suffix] ?: ""
+                            }
+                            val intent = android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALL)
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alert Sound ($editingScopeForRingtone)")
+                                try {
+                                    if (currentSoundUri.isNotEmpty()) {
+                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, android.net.Uri.parse(currentSoundUri))
+                                    }
+                                } catch (e: Exception) {}
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                            }
+                            ringtonePickerLauncher.launch(intent)
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("System Ringtones & Tones", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Built-in notification or alarm sounds", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    // Option 2: Custom audio file
+                    Surface(
+                        onClick = {
+                            showSoundSourceDialog = false
+                            try {
+                                customFilePickerLauncher.launch("audio/*")
+                            } catch (e: Exception) {
+                                android.util.Log.e("Settings", "Failed to launch custom file picker: ${e.message}")
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Custom Audio Files", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Choose MP3, WAV, etc., from device storage", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showSoundSourceDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -810,26 +918,33 @@ fun SettingsGroupHeader(
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onToggle)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onToggle),
+        color = if (expanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Icon(
-            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

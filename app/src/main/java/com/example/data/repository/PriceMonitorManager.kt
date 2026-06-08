@@ -10,6 +10,7 @@ import com.example.data.model.PriceTick
 import com.example.data.model.SymbolInfo
 import com.example.data.model.SymbolState
 import com.example.data.model.TriggerHistory
+import com.example.data.model.formatPriceDynamic
 import com.example.service.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,22 @@ class PriceMonitorManager private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var connectionJob: Job? = null
     private var simTickJob: Job? = null
+    private var logCounter = 0
+
+    fun logEvent(type: String, symbol: String?, message: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                db.appLogDao().insertLog(com.example.data.model.AppLog(type = type, symbol = symbol, message = message))
+                logCounter++
+                if (logCounter >= 20) {
+                    logCounter = 0
+                    db.appLogDao().pruneOldLogs()
+                }
+            } catch (e: Exception) {
+                Log.e("PriceMonitor", "Failed to write log: ${e.message}")
+            }
+        }
+    }
 
     // Price Cache & State Flow
     private val _priceState = MutableStateFlow<Map<String, PriceTick>>(emptyMap())
@@ -102,7 +119,8 @@ class PriceMonitorManager private constructor(context: Context) {
                 price = s.defaultPrice,
                 bid = s.defaultPrice - (0.0004 * s.defaultPrice),
                 ask = s.defaultPrice + (0.0004 * s.defaultPrice),
-                history = listOf(s.defaultPrice)
+                history = listOf(s.defaultPrice),
+                openPrice = s.defaultPrice
             )
         }
         _priceState.value = initialMap
@@ -148,16 +166,26 @@ class PriceMonitorManager private constructor(context: Context) {
             val info = SymbolInfo.find(sym)
             val currentTick = currentPrices[sym] ?: PriceTick(sym, info.defaultPrice)
             val prevPrice = currentTick.price
+            val openPrice = currentTick.openPrice ?: info.defaultPrice
 
-            // Random walk simulation (fractional Brownian noise simulator)
+            // Random walk simulation with mean-reversion towards the default base price to prevent unrealistic extreme drift
             val volatility = when (info.category) {
                 "Metals" -> 0.0003
                 "Majors" -> 0.00008
                 else -> 0.00015
             }
-            val changePercent = (Random.nextDouble() - 0.5) * 2.0 * volatility
+            // Ornstein-Uhlenbeck-like mean reversion: pull back harder when further from baseline
+            val deviationPct = (prevPrice - info.defaultPrice) / info.defaultPrice
+            val pullSpeed = 0.04
+            val drift = -deviationPct * pullSpeed
+            
+            val changePercent = (Random.nextDouble() - 0.5) * 2.0 * volatility + drift
             val priceChange = prevPrice * changePercent
-            val newPrice = (prevPrice + priceChange).coerceAtLeast(0.0001)
+            
+            // Strictly bound the price to maximum ±4% deviation from the actual real baseline price
+            val minPrice = info.defaultPrice * 0.96
+            val maxPrice = info.defaultPrice * 1.04
+            val newPrice = (prevPrice + priceChange).coerceIn(minPrice, maxPrice)
 
             // Calculate bid-ask
             val spreadFactor = when (info.category) {
@@ -169,8 +197,13 @@ class PriceMonitorManager private constructor(context: Context) {
             val bid = newPrice - (spreadVal / 2)
             val ask = newPrice + (spreadVal / 2)
 
-            val netChange = newPrice - info.defaultPrice
-            val netChangePct = (netChange / info.defaultPrice) * 100
+            val netChange = newPrice - openPrice
+            val netChangePct = if (openPrice > 0.0) (netChange / openPrice) * 100 else 0.0
+
+            val changeStr = if (netChange >= 0) "+${netChange.formatPriceDynamic(info.decimals)}" else netChange.formatPriceDynamic(info.decimals)
+            val pctStr = if (netChangePct >= 0) "+${String.format("%.2f", netChangePct)}%" else "${String.format("%.2f", netChangePct)}%"
+            val formattedPrice = newPrice.formatPriceDynamic(info.decimals)
+            logEvent("TICK", sym, "$sym ticked simulated at $formattedPrice ($changeStr | $pctStr)")
 
             val oldHistory = currentTick.history
             val newHistory = (oldHistory + newPrice).takeLast(20)
@@ -182,7 +215,8 @@ class PriceMonitorManager private constructor(context: Context) {
                 changePercent = netChangePct,
                 bid = bid,
                 ask = ask,
-                history = newHistory
+                history = newHistory,
+                openPrice = openPrice
             )
 
             currentPrices[sym] = updatedTick
@@ -203,6 +237,7 @@ class PriceMonitorManager private constructor(context: Context) {
         connectionJob?.cancel()
         connectionJob = scope.launch {
             _connectionStatus.value = "CONNECTING"
+            logEvent("SYSTEM", null, "Connecting to Twelve Data WebSocket feed...")
             val request = Request.Builder()
                 .url("wss://ws.twelvedata.com/v1/quotes/price?apikey=$apiKey")
                 .build()
@@ -210,6 +245,7 @@ class PriceMonitorManager private constructor(context: Context) {
             activeWebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     _connectionStatus.value = "LIVE"
+                    logEvent("SYSTEM", null, "Connected to Twelve Data WebSocket successfully.")
                     // Subscribe active symbols
                     val activeList = _activeSymbols.value
                     if (activeList.isNotEmpty()) {
@@ -232,11 +268,13 @@ class PriceMonitorManager private constructor(context: Context) {
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     _connectionStatus.value = "OFFLINE"
+                    logEvent("SYSTEM", null, "Twelve Data Connection closed: $reason")
                     attemptReconnect(apiKey)
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     _connectionStatus.value = "RECONNECTING"
+                    logEvent("SYSTEM", null, "Twelve Data Connection failed: ${t.message}. Retrying...")
                     attemptReconnect(apiKey)
                 }
             })
@@ -291,11 +329,18 @@ class PriceMonitorManager private constructor(context: Context) {
         val currentTick = currentPrices[sym] ?: PriceTick(sym, info.defaultPrice)
         val prevPrice = currentTick.price
 
-        val netChange = newPrice - info.defaultPrice
-        val netChangePct = (netChange / info.defaultPrice) * 100
+        val openPrice = info.defaultPrice
+
+        val netChange = newPrice - openPrice
+        val netChangePct = if (openPrice > 0.0) (netChange / openPrice) * 100 else 0.0
 
         val bid = newPrice - (newPrice * 0.0001)
         val ask = newPrice + (newPrice * 0.0001)
+
+        val changeStr = if (netChange >= 0) "+${netChange.formatPriceDynamic(info.decimals)}" else netChange.formatPriceDynamic(info.decimals)
+        val pctStr = if (netChangePct >= 0) "+${String.format("%.2f", netChangePct)}%" else "${String.format("%.2f", netChangePct)}%"
+        val formattedPrice = newPrice.formatPriceDynamic(info.decimals)
+        logEvent("TICK", sym, "$sym ticked live at $formattedPrice ($changeStr | $pctStr)")
 
         val oldHistory = currentTick.history
         val newHistory = (oldHistory + newPrice).takeLast(20)
@@ -307,7 +352,8 @@ class PriceMonitorManager private constructor(context: Context) {
             changePercent = netChangePct,
             bid = bid,
             ask = ask,
-            history = newHistory
+            history = newHistory,
+            openPrice = openPrice
         )
 
         currentPrices[sym] = updatedTick
@@ -364,6 +410,9 @@ class PriceMonitorManager private constructor(context: Context) {
                         method = alert.priority
                     )
                 )
+
+                val logInfo = SymbolInfo.find(symbol)
+                logEvent("ALERT_TRIGGER", symbol, "ALERT FIRED: ${alert.title} at ${currentPrice.formatPriceDynamic(logInfo.decimals)}")
 
                 // Cooldown / lifecycle management
                 if (alert.isOneTime) {

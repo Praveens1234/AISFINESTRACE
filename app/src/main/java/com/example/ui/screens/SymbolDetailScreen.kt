@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.Alert
 import com.example.data.model.SymbolInfo
+import com.example.data.model.formatPriceDynamic
 import com.example.ui.theme.*
 import com.example.viewmodel.MainViewModel
 import java.text.DecimalFormat
@@ -43,7 +44,6 @@ fun SymbolDetailScreen(
 
     var showQuickCreate by remember { mutableStateOf(false) }
 
-    val df = if (info.decimals == 2) DecimalFormat("#,##0.00") else DecimalFormat("#,##0.00000")
     val changeColor = if (tick != null && tick.change >= 0) PriceUpDark else PriceDownDark
     val arrow = if (tick != null && tick.change >= 0) "▲" else "▼"
 
@@ -90,7 +90,7 @@ fun SymbolDetailScreen(
 
                         // Live large price digit
                         Text(
-                            text = if (tick != null) df.format(tick.price) else df.format(info.defaultPrice),
+                            text = if (tick != null) tick.price.formatPriceDynamic(info.decimals) else info.defaultPrice.formatPriceDynamic(info.decimals),
                             style = MaterialTheme.typography.displayLarge.copy(
                                 fontFamily = PriceTextFontFamily,
                                 fontWeight = FontWeight.Bold,
@@ -102,14 +102,14 @@ fun SymbolDetailScreen(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "$arrow " + if (tick != null) String.format("%.4f", tick.change) else "0.0",
+                                text = "$arrow " + if (tick != null) String.format("%.4f", kotlin.math.abs(tick.change)) else "0.0",
                                 color = changeColor,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium.copy(fontFamily = PriceTextFontFamily)
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = if (tick != null) String.format("%.2f%%", tick.changePercent) else "0.0%",
+                                text = if (tick != null) String.format("%.2f%%", kotlin.math.abs(tick.changePercent)) else "0.0%",
                                 color = changeColor,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium
@@ -140,14 +140,14 @@ fun SymbolDetailScreen(
                             Column {
                                 Text("Bid Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
-                                    text = if (tick != null) df.format(tick.bid) else df.format(info.defaultPrice - 0.05),
+                                    text = if (tick != null) tick.bid.formatPriceDynamic(info.decimals) else (info.defaultPrice - 0.05).formatPriceDynamic(info.decimals),
                                     style = MaterialTheme.typography.bodyLarge.copy(fontFamily = PriceTextFontFamily)
                                 )
                             }
                             Column {
                                 Text("Ask Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
-                                    text = if (tick != null) df.format(tick.ask) else df.format(info.defaultPrice + 0.05),
+                                    text = if (tick != null) tick.ask.formatPriceDynamic(info.decimals) else (info.defaultPrice + 0.05).formatPriceDynamic(info.decimals),
                                     style = MaterialTheme.typography.bodyLarge.copy(fontFamily = PriceTextFontFamily)
                                 )
                             }
@@ -180,7 +180,7 @@ fun SymbolDetailScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(df.format(lowPrice), style = MaterialTheme.typography.labelSmall.copy(fontFamily = PriceTextFontFamily))
+                            Text(lowPrice.formatPriceDynamic(info.decimals), style = MaterialTheme.typography.labelSmall.copy(fontFamily = PriceTextFontFamily))
                             Canvas(
                                 modifier = Modifier
                                     .weight(1f)
@@ -200,7 +200,7 @@ fun SymbolDetailScreen(
                                     center = androidx.compose.ui.geometry.Offset(pct * size.width, size.height / 2f)
                                 )
                             }
-                            Text(df.format(highPrice), style = MaterialTheme.typography.labelSmall.copy(fontFamily = PriceTextFontFamily))
+                            Text(highPrice.formatPriceDynamic(info.decimals), style = MaterialTheme.typography.labelSmall.copy(fontFamily = PriceTextFontFamily))
                         }
                     }
                 }

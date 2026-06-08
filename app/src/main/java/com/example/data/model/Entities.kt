@@ -44,6 +44,15 @@ data class AppSetting(
     val value: String
 )
 
+@Entity(tableName = "app_logs")
+data class AppLog(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val type: String, // "TICK", "ALERT_TRIGGER", "INFO", "ERROR", "SYSTEM"
+    val symbol: String?,
+    val message: String
+)
+
 data class PriceTick(
     val symbol: String,
     val price: Double,
@@ -52,7 +61,8 @@ data class PriceTick(
     val changePercent: Double = 0.0,
     val bid: Double = 0.0,
     val ask: Double = 0.0,
-    val history: List<Double> = emptyList() // last 20 ticks for sparkline
+    val history: List<Double> = emptyList(), // last 20 ticks for sparkline
+    val openPrice: Double? = null
 )
 
 data class SymbolInfo(
@@ -85,4 +95,21 @@ data class SymbolInfo(
                 ?: SymbolInfo(symbol, symbol, "Others", 4, 1.0)
         }
     }
+}
+
+fun Double.formatPriceDynamic(decimals: Int): String {
+    val priceStr = this.toString()
+    val dotIndex = priceStr.indexOf('.')
+    val actualDecimals = if (dotIndex != -1) {
+        val fractionalPart = priceStr.substring(dotIndex + 1).trimEnd('0')
+        fractionalPart.length
+    } else {
+        0
+    }
+    val finalDecimals = maxOf(decimals, actualDecimals).coerceIn(2, 8)
+    val pattern = buildString {
+        append("#,##0.")
+        repeat(finalDecimals) { append('0') }
+    }
+    return java.text.DecimalFormat(pattern).format(this)
 }

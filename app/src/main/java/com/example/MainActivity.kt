@@ -94,6 +94,12 @@ class MainActivity : ComponentActivity() {
                                             label = { Text("Alerts") }
                                         )
                                         NavigationBarItem(
+                                            selected = currentTab == "logs",
+                                            onClick = { currentTab = "logs" },
+                                            icon = { Icon(Icons.Default.History, contentDescription = null) },
+                                            label = { Text("Logs") }
+                                        )
+                                        NavigationBarItem(
                                             selected = currentTab == "settings",
                                             onClick = { currentTab = "settings" },
                                             icon = { Icon(Icons.Default.Settings, contentDescription = null) },
@@ -124,6 +130,10 @@ class MainActivity : ComponentActivity() {
 
                                         "alerts" -> {
                                             AlertListScreen(viewModel = viewModel)
+                                         }
+
+                                         "logs" -> {
+                                             LogsScreen(viewModel = viewModel)
                                         }
 
                                         "settings" -> {
