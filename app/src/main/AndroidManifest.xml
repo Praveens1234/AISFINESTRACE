@@ -61,6 +61,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- Price Home screen Widget Provider -->
+        <receiver
+            android:name=".service.PriceWidgetProvider"
+            android:label="FinTrace Live Prices"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.ACTION_REFRESH_WIDGET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/price_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

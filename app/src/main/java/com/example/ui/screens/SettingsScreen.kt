@@ -43,6 +43,55 @@ fun SettingsScreen(
     val autoStart by viewModel.autoStartOnBoot.collectAsState()
     val connLossThreshold by viewModel.connectionLossThreshold.collectAsState()
     val liveTickerSub by viewModel.liveTickerSymbols.collectAsState()
+    val alerts by viewModel.alertList.collectAsState()
+
+    val alertSoundUri by viewModel.alertSoundUri.collectAsState()
+    val alertSoundTitle by viewModel.alertSoundTitle.collectAsState()
+    val alertRingDurationSec by viewModel.alertRingDurationSec.collectAsState()
+    val alertSoundMode by viewModel.alertSoundMode.collectAsState()
+
+    val prioritySoundUris by viewModel.prioritySoundUris.collectAsState()
+    val prioritySoundTitles by viewModel.prioritySoundTitles.collectAsState()
+    val priorityRingDurations by viewModel.priorityRingDurations.collectAsState()
+    val prioritySoundModes by viewModel.prioritySoundModes.collectAsState()
+
+    var selectedScope by remember { mutableStateOf("Global") } // "Global", "Low", "Medium", "High", "Critical"
+    var editingScopeForRingtone by remember { mutableStateOf("Global") }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val ringtonePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                @Suppress("DEPRECATION")
+                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    result.data?.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI, android.net.Uri::class.java)
+                } else {
+                    result.data?.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                }
+                if (uri != null) {
+                    val uriStr = uri.toString()
+                    val title = android.media.RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "Custom Selected Tone"
+                    if (editingScopeForRingtone == "Global") {
+                        viewModel.saveAlertSoundUri(uriStr)
+                        viewModel.saveAlertSoundTitle(title)
+                    } else {
+                        viewModel.savePrioritySoundUri(editingScopeForRingtone, uriStr)
+                        viewModel.savePrioritySoundTitle(editingScopeForRingtone, title)
+                    }
+                } else {
+                    if (editingScopeForRingtone == "Global") {
+                        viewModel.saveAlertSoundUri("")
+                        viewModel.saveAlertSoundTitle("Default System Tone")
+                    } else {
+                        viewModel.savePrioritySoundUri(editingScopeForRingtone, "")
+                        viewModel.savePrioritySoundTitle(editingScopeForRingtone, "")
+                    }
+                }
+            }
+        }
+    )
 
     var billingExpanded by remember { mutableStateOf(false) }
     var notificationExpanded by remember { mutableStateOf(false) }
@@ -164,14 +213,276 @@ fun SettingsScreen(
             }
         }
 
-        // GROUP 3: Alert Defaults
+        // GROUP 3: Alert Sounds & Speech
         item {
-            SettingsGroupHeader("3. Alert Defaults", defaultsExpanded) { defaultsExpanded = !defaultsExpanded }
+            SettingsGroupHeader("3. Alert Sounds & Speech", defaultsExpanded) { defaultsExpanded = !defaultsExpanded }
             if (defaultsExpanded) {
+                val suffix = selectedScope.lowercase(java.util.Locale.US)
+                val activeSoundMode = if (selectedScope == "Global") {
+                    alertSoundMode
+                } else {
+                    prioritySoundModes[suffix]?.ifBlank { "" } ?: ""
+                }
+
+                val activeSoundTitle = if (selectedScope == "Global") {
+                    alertSoundTitle
+                } else {
+                    prioritySoundTitles[suffix]?.ifBlank { "" } ?: ""
+                }
+
+                val activeSoundUri = if (selectedScope == "Global") {
+                    alertSoundUri
+                } else {
+                    prioritySoundUris[suffix] ?: ""
+                }
+
+                val activeRingDurationSec = if (selectedScope == "Global") {
+                    alertRingDurationSec
+                } else {
+                    priorityRingDurations[suffix] ?: alertRingDurationSec
+                }
+
                 Card(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Default crossing priority set for quick creation fields is labeled HIGH by default.", fontSize = 13.sp)
-                        Text("Alarms and calling alerts will play notification audio coupled with device haptic vibrations.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Scope Selector (Global vs Low vs Medium vs High vs Critical)
+                        Text(
+                            "Configuration Scope",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf("Global", "LOW", "MEDIUM", "HIGH", "CRITICAL").forEach { scope ->
+                                val isSelected = selectedScope == scope
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedScope = scope },
+                                    label = { Text(scope, fontSize = 12.sp) }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (selectedScope == "Global") {
+                                "Editing default settings applied as the baseline across all alerts."
+                            } else {
+                                "Editing custom override rules applied exclusively to $selectedScope priority alerts."
+                            },
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Divider()
+
+                        // Sound Playback Mode Choices
+                        Text(
+                            "Sound Feedback Style",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+
+                        val modeOptions = if (selectedScope == "Global") {
+                            listOf("Both Tone and Voice", "Tone alert only", "TTS voice only", "Silent")
+                        } else {
+                            listOf("Inherit Global", "Both Tone and Voice", "Tone alert only", "TTS voice only", "Silent")
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            modeOptions.forEach { mode ->
+                                val selected = if (selectedScope == "Global") {
+                                    activeSoundMode == mode
+                                } else {
+                                    if (mode == "Inherit Global") activeSoundMode.isEmpty() else activeSoundMode == mode
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable {
+                                            val modeToSave = if (mode == "Inherit Global") "" else mode
+                                            if (selectedScope == "Global") {
+                                                viewModel.saveAlertSoundMode(modeToSave)
+                                            } else {
+                                                viewModel.savePrioritySoundMode(suffix, modeToSave)
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = selected,
+                                        onClick = {
+                                            val modeToSave = if (mode == "Inherit Global") "" else mode
+                                            if (selectedScope == "Global") {
+                                                viewModel.saveAlertSoundMode(modeToSave)
+                                            } else {
+                                                viewModel.savePrioritySoundMode(suffix, modeToSave)
+                                            }
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = mode,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize = 13.sp
+                                        )
+                                        val desc = when (mode) {
+                                            "Inherit Global" -> "Default settings are inherited from global alert behavior (${alertSoundMode})."
+                                            "Both Tone and Voice" -> "Plays your custom sound combined with spoke-aloud price crossing announcements."
+                                            "Tone alert only" -> "Plays only your selected warning chime/sound without reading anything."
+                                            "TTS voice only" -> "Speaks the crossing prices aloud without playing ringtone audio."
+                                            "Silent" -> "Disables all alert soundtracks (uses device visual notifications only)."
+                                            else -> ""
+                                        }
+                                        Text(
+                                            text = desc,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        // Custom Device Ringtone Picker
+                        Text(
+                            "Selected Alarm sound",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable {
+                                    val intent = android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALL)
+                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alert Sound ($selectedScope)")
+                                        try {
+                                            if (activeSoundUri.isNotEmpty()) {
+                                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, android.net.Uri.parse(activeSoundUri))
+                                            }
+                                        } catch (e: Exception) {}
+                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                        putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                                    }
+                                    editingScopeForRingtone = selectedScope
+                                    ringtonePickerLauncher.launch(intent)
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("Device Sound Tone", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = if (selectedScope != "Global" && activeSoundTitle.isEmpty()) {
+                                            "Inherit Global (${alertSoundTitle.ifBlank { "Default System Tone" }})"
+                                        } else {
+                                            activeSoundTitle.ifBlank { "Default System Tone" }
+                                        },
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            Text(
+                                "CHANGE",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (selectedScope != "Global" && activeSoundUri.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.savePrioritySoundUri(suffix, "")
+                                    viewModel.savePrioritySoundTitle(suffix, "")
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Reset to Inherited Sound", fontSize = 12.sp)
+                            }
+                        }
+
+                        Divider()
+
+                        // Dynamic Alert Ringing Playback limits
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Alarm Ring Duration",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                "$activeRingDurationSec seconds",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        
+                        Slider(
+                            value = activeRingDurationSec.toFloat(),
+                            onValueChange = {
+                                val valInt = it.toInt()
+                                if (selectedScope == "Global") {
+                                    viewModel.saveAlertRingDurationSec(valInt)
+                                } else {
+                                    viewModel.savePriorityRingDurationSec(suffix, valInt)
+                                }
+                            },
+                            valueRange = 1f..60f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Quick Select Chips for easy tuning
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(2, 5, 10, 15, 30).forEach { sec ->
+                                val isSel = activeRingDurationSec == sec
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = {
+                                        if (selectedScope == "Global") {
+                                            viewModel.saveAlertRingDurationSec(sec)
+                                        } else {
+                                            viewModel.savePriorityRingDurationSec(suffix, sec)
+                                        }
+                                    },
+                                    label = { Text("${sec}s") },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -387,6 +698,37 @@ fun SettingsScreen(
 
     // Export rule Dialog
     if (showExportDialog) {
+        val backupJson = remember(alerts) {
+            try {
+                val rootObj = org.json.JSONObject()
+                rootObj.put("app", "FinTrace")
+                rootObj.put("export_version", 1)
+                rootObj.put("timestamp", System.currentTimeMillis())
+                val rulesArray = org.json.JSONArray()
+                alerts.forEach { alert ->
+                    val alertObj = org.json.JSONObject()
+                    alertObj.put("symbol", alert.symbol)
+                    alertObj.put("condition", alert.condition)
+                    alertObj.put("targetPrice", alert.targetPrice)
+                    alertObj.put("title", alert.title)
+                    alertObj.put("message", alert.message)
+                    alertObj.put("isActive", alert.isActive)
+                    alertObj.put("isOneTime", alert.isOneTime)
+                    alertObj.put("priority", alert.priority)
+                    alertObj.put("colorTagIndex", alert.colorTagIndex)
+                    alertObj.put("cooldownDurationMs", alert.cooldownDurationMs)
+                    if (alert.expiry != null) {
+                        alertObj.put("expiry", alert.expiry)
+                    }
+                    rulesArray.put(alertObj)
+                }
+                rootObj.put("rules", rulesArray)
+                rootObj.toString(2)
+            } catch (e: Exception) {
+                "{\"app\":\"FinTrace\",\"export_version\":1,\"rules\":[]}"
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { showExportDialog = false },
             confirmButton = {
@@ -396,7 +738,6 @@ fun SettingsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Copy your exported crossing backup JSON below to safe-keep your rules:")
-                    val backupJson = "{\"app\":\"FinTrace\",\"export_version\":1,\"timestamp\":${System.currentTimeMillis()},\"rules\":[]}"
                     OutlinedTextField(
                         value = backupJson,
                         onValueChange = {},
@@ -420,13 +761,18 @@ fun SettingsScreen(
     // Import rule Dialog
     if (showImportDialog) {
         var importInput by remember { mutableStateOf("") }
+        var isSuccess by remember { mutableStateOf<Boolean?>(null) }
+
         AlertDialog(
             onDismissRequest = { showImportDialog = false },
             confirmButton = {
                 Button(
                     onClick = {
-                        // Simulating JSON parse importing safely
-                        showImportDialog = false
+                        val ok = viewModel.importAlertsFromJson(importInput)
+                        isSuccess = ok
+                        if (ok) {
+                            showImportDialog = false
+                        }
                     }
                 ) {
                     Text("Import")
@@ -441,11 +787,17 @@ fun SettingsScreen(
                     Text("Paste your exported configuration JSON backup below to restore your triggers:")
                     OutlinedTextField(
                         value = importInput,
-                        onValueChange = { importInput = it },
+                        onValueChange = { 
+                            importInput = it
+                            isSuccess = null
+                        },
                         modifier = Modifier.fillMaxWidth().height(120.dp),
                         placeholder = { Text("Paste JSON backing string...") },
                         shape = RoundedCornerShape(8.dp)
                     )
+                    if (isSuccess == false) {
+                        Text("Invalid JSON structure! Make sure to copy the exact exported text.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             }
         )

@@ -194,6 +194,7 @@ class PriceMonitorManager private constructor(context: Context) {
         
         // Sync Notification with compact detail
         NotificationHelper.updateTickerNotification(appContext, currentPrices, _activeSymbols.value)
+        com.example.service.PriceWidgetProvider.updateWidgets(appContext, currentPrices)
     }
 
     // ── TWELVE DATA SOCKET INTEGRATION ────────────────────────────────────
@@ -316,6 +317,7 @@ class PriceMonitorManager private constructor(context: Context) {
         evaluateAlerts(sym, prevPrice, newPrice)
 
         NotificationHelper.updateTickerNotification(appContext, currentPrices, _activeSymbols.value)
+        com.example.service.PriceWidgetProvider.updateWidgets(appContext, currentPrices)
     }
 
     // ── EVALUATE ALERTS ───────────────────────────────────────────────────

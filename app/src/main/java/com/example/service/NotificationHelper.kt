@@ -196,7 +196,6 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val heading = "FinTrace Trigger: ${alert.symbol} ${alert.condition.replace("_", " ")}"
         val content = "${alert.title}: crossed target price at $price"
 
@@ -221,7 +220,6 @@ object NotificationHelper {
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setPriority(priorityLevel)
             .setAutoCancel(true)
-            .setSound(soundUri)
             .setContentIntent(pendingIntent)
             .apply {
                 if (alert.priority == "CRITICAL" || alert.priority == "HIGH") {
@@ -233,9 +231,13 @@ object NotificationHelper {
 
         nm.notify(alert.id + 10000, notification)
         triggerDeviceHaptic(context, alert.priority)
+
+        // Play user-selected device tone with voice audio
+        val voiceMsg = "Alert: ${alert.symbol} crossed target price of $price"
+        AlertSoundPlayer.playAlertSound(context, voiceMsg, alert.priority)
     }
 
-    // ── DEMORE ALERT SYSTEM DELIVERIES ─────────────────────────────────────
+    // ── DEMO ALERT SYSTEM DELIVERIES ─────────────────────────────────────
     fun fireDemoAlertNotification(context: Context, type: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val intent = Intent(context, MainActivity::class.java)
@@ -262,6 +264,12 @@ object NotificationHelper {
                     .build()
                 nm.notify(DEMO_NOTIFICATION_ID, notification)
                 triggerDeviceHaptic(context, "HIGH")
+
+                AlertSoundPlayer.playAlertSound(
+                    context,
+                    "Demo warning! Gold Spot crossed 2,320.00",
+                    "HIGH"
+                )
             }
             "ALARM", "VIRTUAL_CALL" -> {
                 // Urgent Delivery
@@ -278,6 +286,12 @@ object NotificationHelper {
                     .build()
                 nm.notify(DEMO_NOTIFICATION_ID, notification)
                 triggerDeviceHaptic(context, "CRITICAL")
+
+                AlertSoundPlayer.playAlertSound(
+                    context,
+                    "Urgent Priority Alert: Gold Spot has crossed 2,320.00",
+                    "CRITICAL"
+                )
             }
         }
     }
