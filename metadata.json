@@ -1,0 +1,6 @@
+{
+  "name": "FinTrace",
+  "description": "Personal-Grade Real-Time Financial Price Monitor & Alert System",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
